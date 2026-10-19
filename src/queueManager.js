@@ -20,6 +20,28 @@ function withTimeout(promise, ms, errorMsg = 'Operation timed out') {
   ]);
 }
 
+function normalizePhoneNumber(input) {
+  if (!input) return '';
+  const digits = input.toString().replace(/[^0-9]/g, '');
+
+  // 12 digits starting with 91
+  if (digits.length === 12 && digits.startsWith('91') && /^[6-9]/.test(digits[2])) {
+    return digits;
+  }
+  // 11 digits starting with 0
+  if (digits.length === 11 && digits.startsWith('0') && /^[6-9]/.test(digits[1])) {
+    return '91' + digits.slice(1);
+  }
+  // 10 digits starting with 6-9 (auto prepend 91 for India)
+  if (digits.length === 10 && /^[6-9]/.test(digits)) {
+    return '91' + digits;
+  }
+  if (digits.length >= 10 && digits.length <= 15) {
+    return digits;
+  }
+  return '';
+}
+
 // ─── Anti-ban safety floors — must match routes.js SAFE_LIMITS ──────────────
 // Even if the DB has bad values (old campaigns), these floors protect the number.
 const ABSOLUTE_MIN_DELAY_SECONDS = 20;
@@ -298,8 +320,8 @@ async function sendSingleMessage(campaign, message, client) {
   }
 
   try {
-    // ── 1. Sanitize phone number ──────────────────────────────────────────
-    const cleanNumber = message.phoneNumber.replace(/[^0-9]/g, '');
+    // ── 1. Sanitize phone number (ensures 91 prefix for India) ────────────
+    const cleanNumber = normalizePhoneNumber(message.phoneNumber) || message.phoneNumber.replace(/[^0-9]/g, '');
     let targetJid = `${cleanNumber}@s.whatsapp.net`;
 
     // ── 2. Pre-check: verify this number is registered on WhatsApp ────────

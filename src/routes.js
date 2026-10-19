@@ -27,8 +27,36 @@ const storage = multer.diskStorage({
 
 const upload = multer({ 
   storage,
-  limits: { fileSize: 15 * 1024 * 1024 } // 15MB limit
+  limits: { 
+    fileSize: 50 * 1024 * 1024, // 50MB media file limit
+    fieldSize: 25 * 1024 * 1024  // 25MB text field limit for large contacts lists (1000+ contacts)
+  }
 });
+
+// Normalize phone numbers to E.164 without leading + (auto-adds 91 for Indian mobile numbers)
+function normalizePhoneNumber(input) {
+  if (!input) return '';
+  const digits = input.toString().replace(/[^0-9]/g, '');
+
+  // 1. 12 digits starting with 91 and next digit is 6-9 (e.g. 919893500917)
+  if (digits.length === 12 && digits.startsWith('91') && /^[6-9]/.test(digits[2])) {
+    return digits;
+  }
+  // 2. 11 digits starting with 0 and next digit is 6-9 (e.g. 09893500917)
+  if (digits.length === 11 && digits.startsWith('0') && /^[6-9]/.test(digits[1])) {
+    return '91' + digits.slice(1);
+  }
+  // 3. 10 digits starting with 6-9 (standard Indian mobile without 91, e.g. 8827795766, 9009401807)
+  if (digits.length === 10 && /^[6-9]/.test(digits)) {
+    return '91' + digits;
+  }
+  // 4. Valid international number with country code (10-15 digits)
+  if (digits.length >= 10 && digits.length <= 15) {
+    return digits;
+  }
+  // Anything else (e.g. bank a/c numbers like 500000086 with <10 digits) is invalid
+  return '';
+}
 
 // ─── ANTI-BAN SAFETY LIMITS (Hardcoded — DO NOT LOWER THESE) ────────────────
 // These limits protect the client's WhatsApp number from getting banned.
@@ -224,30 +252,28 @@ router.post('/campaigns', upload.single('mediaFile'), async (req, res) => {
       return res.status(400).json({ error: 'Contacts must be a non-empty array' });
     }
 
-    // 1. Process contacts: Remove duplicates and filter invalid numbers
+    // 1. Process contacts: Normalize phone numbers (auto add 91 for Indian mobiles), remove duplicates, filter invalid
     const processedContacts = [];
     const numbersSeen = new Set();
 
     for (const contact of rawContacts) {
       if (!contact.phone) continue;
       
-      let phoneStr = contact.phone.toString().replace(/[\s\-\(\)]+/g, '');
-      const match = phoneStr.match(/^\+?[0-9]+/);
-      let cleanPhone = match ? match[0].replace(/[^0-9]/g, '') : phoneStr.replace(/[^0-9]/g, '');
-      if (cleanPhone.length < 8) continue;
+      const cleanPhone = normalizePhoneNumber(contact.phone);
+      if (!cleanPhone) continue; // Filter out non-phone strings or short accounts
 
       if (numbersSeen.has(cleanPhone)) continue;
       numbersSeen.add(cleanPhone);
 
       processedContacts.push({
-        name: contact.name || '',
+        name: (contact.name || '').trim(),
         phone: cleanPhone,
         customFields: contact.customFields || {}
       });
     }
 
     if (processedContacts.length === 0) {
-      return res.status(400).json({ error: 'No valid phone numbers found (numbers must be at least 8 digits)' });
+      return res.status(400).json({ error: 'No valid phone numbers found. Please check your contacts list.' });
     }
 
     // 2. Prepare media info
