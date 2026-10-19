@@ -86,6 +86,18 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', time: new Date() });
 });
 
+// 404 handler for API routes (always return JSON, never HTML)
+app.use('/api', (req, res) => {
+  res.status(404).json({ error: `Route not found: ${req.method} ${req.originalUrl}` });
+});
+
+// Global error handler (always return JSON)
+app.use((err, req, res, next) => {
+  console.error('Unhandled server error:', err);
+  const status = err.status || err.statusCode || 500;
+  res.status(status).json({ error: err.message || 'Internal Server Error' });
+});
+
 // Setup socket io connections
 io.on('connection', (socket) => {
   console.log(`Socket client connected: ${socket.id}`);
