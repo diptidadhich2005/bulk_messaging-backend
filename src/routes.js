@@ -106,6 +106,7 @@ router.post('/sessions/:id/restart', async (req, res) => {
     if (!session) {
       return res.status(404).json({ error: 'Session not found' });
     }
+    await sessionManager.destroyClient(sessionId);
     await sessionManager.startSession(sessionId);
     res.json({ message: 'Session initialization started' });
   } catch (err) {
